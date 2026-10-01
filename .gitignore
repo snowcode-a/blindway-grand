@@ -1,0 +1,4 @@
+﻿# 本地预览产生的临时文件
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>盲道占用检测系统 · Blindway Grand</title>
+<meta name="description" content="用普通摄像头 + AI 自动发现车辆占用盲道，并生成可执法证据。YOLOv8n + BoT-SORT，纯 CPU 51~71ms/帧。">
+<meta name="theme-color" content="#14807F">
+<meta property="og:title" content="盲道占用检测系统 · Blindway Grand">
+<meta property="og:description" content="用普通摄像头 + AI 自动发现车辆占用盲道，并生成可执法证据。">
+<meta property="og:image" content="assets/monitor.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%230E7A7A'/><text x='16' y='23' font-size='19' font-family='sans-serif' font-weight='bold' fill='white' text-anchor='middle'>盲</text></svg>">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- ============ 顶栏 ============ -->
+<header class="topbar">
+  <button class="menu-btn" id="menuBtn" aria-label="菜单">☰</button>
+  <div class="brand">
+    <div class="brand-logo">盲</div>
+    <div class="brand-text">
+      <div class="brand-title">盲道占用检测</div>
+      <div class="brand-sub">Blindway Grand v2.0</div>
+    </div>
+  </div>
+  <div class="topstats">
+    <div class="stat-chip"><span class="k">区域内</span><span class="v" id="chipInRoi">5</span></div>
+    <div class="stat-chip alarm"><span class="k">报警</span><span class="v" id="chipAlarm">3</span><span class="k">次</span></div>
+    <div class="stat-chip ok" id="chipState">检测中 · 正常</div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ============ 侧边栏 ============ -->
+  <nav class="sidebar" id="sidebar">
+    <div class="nav-section">功能导航</div>
+    <button class="nav-btn active" data-page="monitor"><span class="nav-ico">◉</span>实时监控</button>
+    <button class="nav-btn" data-page="roi"><span class="nav-ico">⬚</span>区域标定</button>
+    <button class="nav-btn" data-page="alarm"><span class="nav-ico">⚑</span>报警记录</button>
+    <button class="nav-btn" data-page="report"><span class="nav-ico">▤</span>数据报告</button>
+    <div class="sidebar-foot">
+      <div class="engine-card">
+        <div class="engine-line"><span class="dot"></span>引擎就绪</div>
+        <div class="engine-sub">YOLOv8n · CPU</div>
+        <div class="engine-sub">ROI 1 个区域</div>
+      </div>
+    </div>
+  </nav>
+
+  <main class="content">
+
+    <!-- ==================== 一、实时监控 ==================== -->
+    <section class="page active" id="page-monitor">
+      <div class="page-head">
+        <h1>实时监控</h1>
+        <p>检测画面 · 区域内目标 · 实时统计</p>
+      </div>
+
+      <div class="cols">
+        <div class="col-main">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">实时画面</span>
+              <span class="card-tools">
+                <span class="zoom-label" id="zoomLabel">100%</span>
+                <button class="mini-btn" data-zoom="fit">适应窗口</button>
+                <button class="mini-btn" id="btnDemo">播放检测演示</button>
+              </span>
+            </div>
+            <div class="canvas" id="monitorCanvas">
+              <img src="assets/monitor.jpg" alt="盲道占用检测实时画面：黄色盲道上停放着电动车，系统用检测框标出车辆并显示停留计时" id="monitorImg">
+              <div class="canvas-hud" id="monitorHud">Frame 45 ｜ 区域内 5 ｜ 报警 3 ｜ 阈值 1.0s</div>
+              <div class="alert-band" id="alertBand">⚠ 盲道占用报警</div>
+              <div class="scan-line" id="scanLine"></div>
+            </div>
+            <div class="legend">
+              <span><i class="sw normal"></i>普通车辆</span>
+              <span><i class="sw dwell"></i>区域内停留中</span>
+              <span><i class="sw occupy"></i>超时占用报警</span>
+              <span class="legend-hint">滚轮缩放 · 拖拽平移 · 双击复位</span>
+            </div>
+          </div>
+
+          <!-- 底部控制栏 -->
+          <div class="playbar">
+            <button class="btn primary" id="btnStart">开始检测</button>
+            <button class="btn" id="btnRestart" disabled>重新开始</button>
+            <button class="btn" id="btnPause">暂停</button>
+            <div class="progress"><div class="progress-fill" id="progressFill"></div></div>
+            <span class="time-label" id="timeLabel">00:00 / 00:04</span>
+          </div>
+        </div>
+
+        <aside class="col-side">
+          <div class="group">
+            <div class="group-title">监测地点</div>
+            <input class="input" id="locInput" value="湖北省荆州市 长江大学东校区" placeholder="例如：湖北省荆州市 某某路">
+            <button class="btn primary block" id="btnSaveLoc">保存地点</button>
+            <div class="hint ok" id="locHint">已保存：湖北省荆州市 长江大学东校区</div>
+          </div>
+
+          <div class="group">
+            <div class="group-title">视频源</div>
+            <input class="input" value="demo_blindway.mp4" readonly>
+            <button class="btn block">选择视频…</button>
+            <button class="btn block">用测试视频</button>
+            <select class="input"><option>视频文件</option><option>本地摄像头 (0)</option><option>RTSP / 网络流</option></select>
+          </div>
+
+          <div class="group">
+            <div class="group-title">检测参数</div>
+            <div class="form-row"><label>停留阈值</label><input class="input num" value="1.00" id="pDwell"><span class="unit">秒</span></div>
+            <div class="form-row"><label>置信度</label><input class="input num" value="0.15" id="pConf"><span class="unit"></span></div>
+            <div class="form-row"><label>确认帧数</label><input class="input num" value="3" id="pConfirm"><span class="unit"></span></div>
+            <div class="form-row"><label>冷却时间</label><input class="input num" value="3.00" id="pCool"><span class="unit">秒</span></div>
+            <div class="form-row"><label>运行设备</label><select class="input"><option>cpu</option><option>cuda</option></select></div>
+          </div>
+
+          <div class="group">
+            <div class="group-title">报警方式</div>
+            <label class="check"><input type="checkbox" checked> 报警截图落盘</label>
+            <label class="check"><input type="checkbox" checked> 声音提示</label>
+            <label class="check"><input type="checkbox"> 保存标注视频</label>
+            <label class="check"><input type="checkbox"> 同一辆车可重复报警</label>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ==================== 二、区域标定 ==================== -->
+    <section class="page" id="page-roi">
+      <div class="page-head">
+        <h1>区域标定</h1>
+        <p>在画面上拖动 4 个角点，框出盲道区域，保存后立即生效</p>
+      </div>
+
+      <div class="cols">
+        <div class="col-main">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">标定画面</span>
+              <span class="card-tools"><span class="tip">拖动角点自由变形 · 滚轮缩放 · 拖拽平移</span></span>
+            </div>
+            <div class="canvas roi-canvas">
+              <img src="assets/roicanvas.jpg" alt="区域标定：画面中盲道上覆盖着可拖拽的四角形区域" id="roiImg">
+            </div>
+            <div class="hint">提示：四个角点分别落在盲道两端的左右边缘，覆盖整条盲道即可。保存后检测立刻按新区域判定。</div>
+          </div>
+        </div>
+
+        <aside class="col-side">
+          <div class="group">
+            <div class="group-title">编辑方式</div>
+            <select class="input"><option>拖拽四点（自由变形）</option><option>点击加点（任意多边形）</option></select>
+            <div class="hint">画面上有 4 个可拖拽的角点（编号 1~4），按住任意一个拖动即可自由拉伸盲道区域。</div>
+          </div>
+          <div class="group">
+            <div class="group-title">标定操作</div>
+            <div class="coord-title">四边形四个角点：</div>
+            <div class="coord" id="coordList">
+              <div>1. (649, 208)</div>
+              <div>2. (719, 203)</div>
+              <div>3. (608, 719)</div>
+              <div>4. (436, 719)</div>
+            </div>
+            <button class="btn block">载入当前 ROI 到编辑器</button>
+            <button class="btn block" disabled>撤销上一个顶点</button>
+            <button class="btn block">清空当前多边形</button>
+            <button class="btn block">删除全部 ROI</button>
+            <button class="btn primary block">保存区域</button>
+          </div>
+          <div class="group">
+            <div class="group-title">已有区域</div>
+            <div class="hint">区域 1：4 个顶点</div>
+            <button class="btn block">重新加载 rois.json</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ==================== 三、报警记录 ==================== -->
+    <section class="page" id="page-alarm">
+      <div class="page-head">
+        <h1>报警记录</h1>
+        <p>每一次占用报警的证据截图与详情</p>
+      </div>
+
+      <div class="cols">
+        <div class="col-main">
+          <div class="card">
+            <div class="card-head"><span class="card-title">报警记录</span></div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr><th>#</th><th>时间</th><th>目标</th><th>停留</th><th>类型</th><th>车辆信息</th></tr>
+                </thead>
+                <tbody>
+                  <tr data-row="0"><td>1</td><td>15:01:12</td><td>#11</td><td class="alarm">1.0s</td><td>摩托车</td><td>白色/银灰色 摩托车</td></tr>
+                  <tr data-row="1"><td>2</td><td>15:01:13</td><td>#3</td><td class="alarm">1.0s</td><td>摩托车</td><td>银灰色 摩托车</td></tr>
+                  <tr data-row="2"><td>3</td><td>15:01:14</td><td>#15</td><td class="alarm">1.1s</td><td>摩托车</td><td>白色 摩托车</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="row-actions">
+              <button class="btn">打开截图目录</button>
+              <button class="btn">导出 CSV</button>
+              <button class="btn">清空记录</button>
+            </div>
+          </div>
+        </div>
+
+        <aside class="col-side">
+          <div class="group">
+            <div class="group-title">证据截图</div>
+            <div class="ev-toolbar">
+              <span class="zoom-label" id="evZoom">100%</span>
+              <button class="mini-btn" id="evReset">复位</button>
+              <button class="mini-btn" id="evOpen">查看原图</button>
+            </div>
+            <div class="ev-viewer" id="evViewer">
+              <img src="assets/evidence.jpg" alt="报警证据图：左侧为报警时刻原图并用红框标出涉事车辆，右侧为车辆放大特写与车牌、颜色、车型、停留时长、监测地点等特征" id="evImg">
+            </div>
+            <div class="hint">滚轮缩放 · 拖拽平移 · 双击复位（可放大看清车牌）</div>
+          </div>
+          <div class="group" id="alarmDetail">
+            <div class="group-title">第 1 次报警</div>
+            <div class="detail-lines">
+              <div>时间：2026-10-01 15:01:12</div>
+              <div>目标：ID 11 类型：摩托车</div>
+              <div>停留：1.0 秒 帧号：37</div>
+              <div>车牌号：未识别（该目标无牌或角度不可读）</div>
+              <div>车身颜色：白色/银灰色</div>
+              <div>车辆型号：摩托车</div>
+              <div>监测地点：湖北省荆州市 长江大学东校区</div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ==================== 四、数据报告 ==================== -->
+    <section class="page" id="page-report">
+      <div class="page-head">
+        <h1>数据报告</h1>
+        <p>本次检测的统计汇总与证据导出</p>
+      </div>
+
+      <div class="stat-grid">
+        <div class="card stat-card"><div class="stat-cap">已处理帧数</div><div class="stat-val accent">141</div><div class="stat-sub">共 141 帧</div></div>
+        <div class="card stat-card"><div class="stat-cap">占用报警</div><div class="stat-val alarm">3</div><div class="stat-sub">已触发报警</div></div>
+        <div class="card stat-card"><div class="stat-cap">最长停留</div><div class="stat-val warn">1.1 s</div><div class="stat-sub">阈值 1.0s</div></div>
+        <div class="card stat-card"><div class="stat-cap">占用占比</div><div class="stat-val ok">6.4%</div><div class="stat-sub">报警次数 / 处理帧数</div></div>
+      </div>
+
+      <div class="cols">
+        <div class="col-main">
+          <div class="card">
+            <div class="card-head"><span class="card-title">各次报警的停留时长</span></div>
+            <div class="chart-wrap"><img src="assets/chart.png" alt="柱状图：7 次报警的停留时长，均已超过 1.0 秒阈值"></div>
+          </div>
+        </div>
+        <aside class="col-side">
+          <div class="group grow">
+            <div class="group-title">检测结论</div>
+            <div class="detail-lines">
+              <div>本次共处理 141 帧，触发 <b>3</b> 次盲道占用报警。</div>
+              <div class="gap"></div>
+              <div>涉及车辆类型：摩托车 3 次</div>
+              <div>其中 3 次无车牌，已记录颜色+型号：白色/银灰色 摩托车、银灰色 摩托车、白色 摩托车</div>
+              <div>最长停留时长：1.1 秒（报警阈值 1.0 秒）</div>
+              <div>证据图均已保存到 output/alerts/（红框标出车辆 + 车辆放大特写）。</div>
+              <div class="gap"></div>
+              <div>结论：检测到车辆在盲道区域内停留超时，已生成带时间戳与车辆特征的证据图，可用于后续执法/劝导。</div>
+            </div>
+            <div class="row-actions">
+              <button class="btn primary">导出证据 CSV</button>
+              <button class="btn">打开输出目录</button>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- 轻提示 -->
+<div class="toast" id="toast"></div>
+
+<footer class="foot">
+  <span>盲道占用检测系统 · Blindway Grand v2.0</span>
+  <span class="sep">·</span>
+  <span>YOLOv8n + BoT-SORT + hyperlpr3</span>
+  <span class="sep">·</span>
+  <span>纯 CPU 51~71 ms/帧</span>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
