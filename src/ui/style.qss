@@ -1,0 +1,495 @@
+/* ==========================================================================
+   Blindway Grand · 盲道占用检测  —  样式表
+   ==========================================================================
+
+   设计来源（两层）
+   ------------------------------------------------------------------
+   ① 视觉基调：对齐给定参考图（PinHome 式仪表盘）的 teal 色系与卡片质感
+   ② 设计系统：借鉴 PyQt-SiliconUI (github.com/ChinaIceF/PyQt-SiliconUI)
+      的令牌体系与渲染手法，具体包括：
+
+        · 悬停/按下用「白色叠加层」而不是逐个调色
+          （SiColor.BUTTON_HOVER = #10FFFFFF，6% 白）
+          —— 一个值就能适配所有底色，这是很聪明的做法
+        · 五级背景层次：卡片/凹槽/面板用不同明度拉开纵深
+          （对应 INTERFACE_BG_A~E）
+        · 五级文字层次：从主文字到弱化逐级变浅
+          （对应 TEXT_A~E）
+        · 主题按钮用同色系渐变 + 深色描边模拟「浮起」
+          （BUTTON_THEMED_BG_A/B + SHADOW_A/B）
+        · 文字用 PreferFullHinting，小字号更清晰
+
+   ⚠ 关于渐变：本文件早先版本写「禁止渐变」，针对的是**装饰性**的
+     蓝紫 AI 渐变。这里主按钮用的是同色系微渐变（teal → 略亮 teal），
+     目的是模拟「有光照的立体表面」，属于功能性用法，不冲突。
+
+   ⚠ 浅色主题最大的坑是对比度，下面每个色值都验算过 WCAG：
+       主文字/卡片 12.26:1 ｜ 次要/卡片 4.96:1 ｜ 白字/主色 5.14:1
+       白字/报警红 5.10:1 ｜ 深字/强调黄 7.73:1 ｜ 白字/侧边栏 4.75:1
+     特别地：**表格选中行是浅青底，绝不能用白字**（白字在 #D8EFEF 上
+     只有 1.20:1，等于看不见），所以统一用深墨字。
+   ========================================================================== */
+
+/* ---------- 设计令牌（改主题只改这里）-------------------------------
+   ─ 背景五级（借鉴 SiliconUI INTERFACE_BG_A~E 的层次思路）
+     bg0 #EAF2F2  窗口最底
+     bg1 #F2F7F7  常规背景
+     bg2 #F7FAFA  输入槽 / 凹槽
+     bg3 #FFFFFF  卡片 / 浮起面
+     bg4 #FBFDFD  卡片内的次级块
+   ─ 描边
+     line  #E2EBEB   常规
+     line2 #D3E2E2   强一点（输入框）
+   ─ 文字五级（借鉴 TEXT_A~E）
+     ink   #16332F  标题
+     ink2  #1B3A3A  正文
+     ink3  #5A7575  次要
+     ink4  #829999  弱化
+     ink5  #A8BFBF  禁用
+   ─ 主色（青绿，与参考图同色系）
+     teal      #0E7A7A   常态（白字 5.14:1）
+     teal_hi   #14908C   悬停
+     teal_lo   #0A6161   按下
+   ─ 强调
+     amber     #F2C94C   强调黄（同参考图 Create 按钮）
+   -------------------------------------------------------------------- */
+
+/* ---------- 全局 ---------- */
+QWidget {
+    background-color: #F2F7F7;
+    color: #1B3A3A;
+    font-family: "Segoe UI Variable Display", "Segoe UI",
+                 "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+}
+QMainWindow, QDialog { background-color: #F2F7F7; }
+
+QToolTip {
+    background-color: #16332F;
+    color: #EAF6F4;
+    border: 1px solid #14908C;
+    border-radius: 8px;
+    padding: 7px 11px;
+}
+
+/* ---------- 侧边导航栏：teal 实底 + 白色胶囊选中项 ---------- */
+QFrame#Sidebar {
+    background-color: #14807F;
+    border: none;
+}
+/* ★ 侧边栏内所有 QLabel 必须显式透明，否则继承全局白底会糊出白方块 */
+QFrame#Sidebar QLabel { background: transparent; }
+
+QFrame#BrandCard {
+    background-color: #FFFFFF;
+    border: none;
+    border-radius: 12px;
+}
+QLabel#BrandTitle {
+    background: transparent;
+    color: #0E7A7A; font-size: 14px; font-weight: 700;
+    letter-spacing: -0.2px;
+}
+QLabel#BrandSub {
+    background: transparent;
+    color: #7FA8A8; font-size: 10px; letter-spacing: 0.2px;
+}
+QLabel#NavSection {
+    background: transparent;
+    color: #7FC4C4; font-size: 10px;
+    letter-spacing: 1.4px; padding-left: 6px;
+}
+
+QPushButton#NavButton {
+    text-align: left;
+    padding: 0 14px;
+    min-height: 42px;
+    border: none;
+    border-radius: 21px;
+    background: transparent;
+    color: #CDE9E9;
+    font-size: 13.5px;
+}
+/* 悬停/按下用白色叠加层（借鉴 SiliconUI BUTTON_HOVER/FLASH 的思路） */
+QPushButton#NavButton:hover {
+    background-color: #2A9391;            /* teal + 6% 白 */
+    color: #FFFFFF;
+}
+QPushButton#NavButton:pressed {
+    background-color: #3BA09D;            /* teal + 12% 白 */
+}
+QPushButton#NavButton:focus {
+    background-color: #2A9391;
+    color: #FFFFFF;
+}
+QPushButton#NavButton:checked {
+    background-color: #FFFFFF;
+    color: #0E7A7A;
+    font-weight: 600;
+}
+QPushButton#NavButton:checked:focus { background-color: #FFFFFF; }
+
+/* ---------- 顶部标题栏 ---------- */
+QLabel#PageTitle {
+    color: #16332F; font-size: 20px; font-weight: 700;
+    letter-spacing: -0.4px;
+}
+QLabel#PageSubtitle { color: #5A7575; font-size: 12px; }
+
+/* ---------- 面板 / 卡片：白底浮起 + 极淡描边 ---------- */
+QFrame#Panel, QFrame#Card {
+    background-color: #FFFFFF;
+    border: 1px solid #E2EBEB;
+    border-radius: 14px;
+}
+QLabel#CardTitle {
+    color: #16332F; font-size: 13.5px; font-weight: 600;
+    letter-spacing: -0.1px;
+}
+QLabel#CardDesc { color: #829999; font-size: 11px; }
+QLabel#SectionLabel { color: #5A7575; font-size: 12px; font-weight: 600; }
+
+QLabel#TimeLabel {
+    font-family: "Cascadia Mono", "Consolas", monospace;
+    font-size: 12px; color: #5A7575; letter-spacing: 0.3px;
+}
+QLabel#CanvasHud {
+    font-family: "Cascadia Mono", "Consolas", monospace;
+    font-size: 12px; color: #C3CCDB; letter-spacing: 0.2px;
+}
+
+/* ---------- 指标卡：数字等宽，配色走动态属性 accent ---------- */
+QLabel#StatCaption { color: #829999; font-size: 11px; letter-spacing: 0.2px; }
+QLabel#StatValue {
+    font-size: 25px; font-weight: 600;
+    font-family: "Cascadia Mono", "Consolas", monospace;
+    letter-spacing: -0.5px;
+    color: #1B3A3A;
+}
+QLabel#StatValue[accent="ok"]    { color: #1F7F55; }
+QLabel#StatValue[accent="warn"]  { color: #8A6410; }
+QLabel#StatValue[accent="alarm"] { color: #C0433F; }
+QLabel#StatValue[accent="accent"]{ color: #0E7A7A; }
+QLabel#StatValue[accent="muted"] { color: #829999; }
+QLabel#StatSub { color: #829999; font-size: 11px; }
+
+/* ---------- 视频画布：浅色界面里给画面留深底 ---------- */
+QLabel#VideoCanvas {
+    background-color: #123333;
+    border: 1px solid #E2EBEB;
+    border-radius: 14px;
+}
+QLabel#CanvasHint { color: #6E8585; font-size: 13px; }
+
+/* ---------- 按钮 ---------- */
+QPushButton {
+    background-color: #FFFFFF;
+    border: 1px solid #D3E2E2;
+    border-radius: 18px;
+    padding: 8px 18px;
+    color: #1B3A3A;
+    min-height: 15px;
+}
+QPushButton:hover {
+    background-color: #F1F9F8;
+    border-color: #14908C;
+    color: #0E7A7A;
+}
+QPushButton:pressed {
+    background-color: #E2F1F0;
+    border-color: #0A6161;
+    padding-top: 9px; padding-bottom: 7px;   /* QSS 无 scale，用位移模拟按压 */
+}
+QPushButton:focus { border: 1px solid #0E7A7A; }
+QPushButton:disabled {
+    background-color: #F5F9F9;
+    color: #A8BFBF;
+    border-color: #E6EEEE;
+}
+
+/* 主按钮：同色系微渐变 + 深一档描边，模拟"浮起的实体按钮"
+   （借鉴 SiliconUI BUTTON_THEMED_BG_A/B + SHADOW_A/B）
+   ⚠ 渐变两端都必须让白字过 4.5:1 —— 实测亮端取 #14908C 时只有 3.89:1，
+     悬停 #18A09B 只有 3.21:1，都不达标，所以整体压深到下面这组值。 */
+QPushButton#Primary {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                      stop:0 #0E7A7A, stop:1 #0A6161);
+    border: 1px solid #084E4E;
+    color: #FFFFFF;
+    font-weight: 600;
+}
+QPushButton#Primary:hover {
+    background-color: #0F8484;             /* 白字 4.51:1，刚好达标 */
+    border-color: #0A6161;
+}
+QPushButton#Primary:pressed {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                      stop:0 #084E4E, stop:1 #0A6161);
+    border-color: #063D3D;
+    padding-top: 9px; padding-bottom: 7px;
+}
+QPushButton#Primary:disabled {
+    background-color: #C9DEDE; color: #FFFFFF; border-color: #C9DEDE;
+}
+
+/* 危险色只用于破坏性操作 */
+QPushButton#Danger {
+    background-color: #C0433F;
+    border: 1px solid #A33330;
+    color: #FFFFFF;
+    font-weight: 600;
+}
+QPushButton#Danger:hover   { background-color: #CE4F4A; }
+QPushButton#Danger:pressed { background-color: #A33330; }
+QPushButton#Danger:disabled{ background-color: #EBD3D2; color: #FFFFFF; border-color: #EBD3D2; }
+
+/* 确认类 */
+QPushButton#Accent {
+    background-color: #1F7F55;
+    border: 1px solid #1A6E49;
+    color: #FFFFFF;
+    font-weight: 600;
+}
+QPushButton#Accent:hover   { background-color: #248F60; }
+QPushButton#Accent:pressed { background-color: #1A6E49; }
+QPushButton#Accent:disabled{ background-color: #CFE3D9; color: #FFFFFF; border-color: #CFE3D9; }
+
+/* 强调黄按钮（参考图的 Create 那种，用于"要你注意"的操作） */
+QPushButton#Amber {
+    background-color: #F2C94C;
+    border: 1px solid #E0B83C;
+    color: #16332F;
+    font-weight: 600;
+}
+QPushButton#Amber:hover   { background-color: #F6D466; }
+QPushButton#Amber:pressed { background-color: #E0B83C; }
+
+/* ---------- 输入控件 ---------- */
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+    background-color: #F7FAFA;
+    border: 1px solid #D3E2E2;
+    border-radius: 10px;
+    padding: 7px 11px;
+    color: #1B3A3A;
+    min-height: 15px;
+    selection-background-color: #0E7A7A;
+    selection-color: #FFFFFF;
+}
+QSpinBox, QDoubleSpinBox, QComboBox {
+    font-family: "Cascadia Mono", "Consolas", monospace;
+}
+QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover {
+    border-color: #9EC4C4;
+    background-color: #FBFDFD;
+}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+    border: 1px solid #0E7A7A;
+    background-color: #FFFFFF;
+}
+QLineEdit:read-only { color: #5A7575; background-color: #F1F6F6; }
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+    color: #A8BFBF; background-color: #F5F9F9;
+}
+QComboBox::drop-down { border: none; width: 24px; }
+QComboBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #5A7575;
+    margin-right: 9px;
+}
+QComboBox QAbstractItemView {
+    background-color: #FFFFFF;
+    border: 1px solid #D3E2E2;
+    border-radius: 10px;
+    color: #1B3A3A;
+    selection-background-color: #E6F5F6;
+    selection-color: #0E7A7A;
+    outline: none;
+    padding: 4px;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button,
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    background-color: #EAF2F2; border: none; width: 16px;
+}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background-color: #D3E6E6;
+}
+
+/* ---------- 复选框 ---------- */
+QCheckBox { spacing: 8px; color: #2E4A4A; background: transparent; }
+QCheckBox:hover { color: #0E7A7A; }
+QCheckBox::indicator {
+    width: 17px; height: 17px;
+    border: 1px solid #B9CFCF;
+    border-radius: 5px;
+    background-color: #FFFFFF;
+}
+QCheckBox::indicator:hover   { border-color: #0E7A7A; }
+QCheckBox::indicator:checked { background-color: #0E7A7A; border-color: #0E7A7A; }
+QCheckBox::indicator:disabled{ border-color: #DFE8E8; background-color: #F5F9F9; }
+
+/* ---------- 滑块 ---------- */
+QSlider::groove:horizontal {
+    height: 6px; background: #DCE7E7; border-radius: 3px;
+}
+QSlider::sub-page:horizontal { background: #0E7A7A; border-radius: 3px; }
+QSlider::handle:horizontal {
+    background: #FFFFFF; width: 16px; height: 16px;
+    margin: -6px 0; border-radius: 8px;
+    border: 2px solid #0E7A7A;
+}
+QSlider::handle:horizontal:hover  { background: #E6F5F6; }
+QSlider::handle:horizontal:pressed{ background: #0E7A7A; }
+QSlider:disabled::sub-page:horizontal { background: #DCE7E7; }
+QSlider:disabled::handle:horizontal   { border-color: #C4D4D4; }
+
+/* ---------- 表格：浅底深字，选中行也用深字 ---------- */
+QTableWidget {
+    background-color: #FFFFFF;
+    alternate-background-color: #F8FBFB;
+    border: 1px solid #E2EBEB;
+    border-radius: 12px;
+    gridline-color: #EDF3F3;
+    selection-background-color: #D8EFEF;
+    selection-color: #16332F;
+    color: #1B3A3A;
+    font-family: "Cascadia Mono", "Consolas", monospace;
+    font-size: 12px;
+}
+QTableWidget::item { padding: 6px 9px; border: none; }
+QTableWidget::item:hover    { background-color: #F1F9F8; }
+QTableWidget::item:selected { background-color: #D8EFEF; color: #16332F; }
+QHeaderView::section {
+    background-color: #F2F8F8;
+    color: #5A7575;
+    border: none;
+    border-bottom: 1px solid #E2EBEB;
+    border-right: 1px solid #EDF3F3;
+    padding: 8px 9px;
+    font-weight: 600;
+    font-family: "Segoe UI Variable Display", "Microsoft YaHei UI", sans-serif;
+    font-size: 12px;
+}
+QHeaderView::section:hover { color: #0E7A7A; background-color: #E9F4F3; }
+QTableWidget QTableCornerButton::section { background-color: #F2F8F8; border: none; }
+
+/* ---------- 状态徽章：浅底深字 + 胶囊 ---------- */
+QLabel#AlarmBadge {
+    background-color: #FBE9E8;
+    border: 1px solid #E8B4B1;
+    border-radius: 13px;
+    color: #A33330;
+    font-weight: 600;
+    padding: 6px 13px;
+    letter-spacing: 0.2px;
+}
+QLabel#SafeBadge {
+    background-color: #E4F4EC;
+    border: 1px solid #A9D9C2;
+    border-radius: 13px;
+    color: #1A6E49;
+    font-weight: 600;
+    padding: 6px 13px;
+    letter-spacing: 0.2px;
+}
+QLabel#WarnBadge {
+    background-color: #FCF4DC;
+    border: 1px solid #E8D08E;
+    border-radius: 13px;
+    color: #8A6410;
+    font-weight: 600;
+    padding: 6px 13px;
+    letter-spacing: 0.2px;
+}
+QLabel#IdleBadge {
+    background-color: #F0F5F5;
+    border: 1px solid #D3E2E2;
+    border-radius: 13px;
+    color: #5A7575;
+    font-weight: 600;
+    padding: 6px 13px;
+    letter-spacing: 0.2px;
+}
+
+/* ---------- 状态栏 ---------- */
+QStatusBar {
+    background-color: #E8F1F1;
+    color: #5A7575;
+    border-top: 1px solid #D3E2E2;
+}
+QStatusBar::item { border: none; }
+QLabel#StatusLeft  { color: #2E4A4A; font-size: 12px; padding-left: 6px; }
+QLabel#StatusRight {
+    color: #5A7575; font-size: 12px; padding-right: 8px;
+    font-family: "Cascadia Mono", "Consolas", monospace;
+}
+
+/* ---------- 进度条 ---------- */
+QProgressBar {
+    background-color: #DCE7E7;
+    border: none;
+    border-radius: 3px;
+    height: 6px;
+    text-align: center;
+    color: transparent;
+}
+QProgressBar::chunk {
+    border-radius: 3px;
+    background-color: #0E7A7A;
+}
+
+/* ---------- 滚动条 ---------- */
+QScrollBar:vertical { background: transparent; width: 11px; margin: 2px; }
+QScrollBar::handle:vertical {
+    background: #C4D8D8; border-radius: 5px; min-height: 30px;
+}
+QScrollBar::handle:vertical:hover { background: #A8C4C4; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+QScrollBar:horizontal { background: transparent; height: 11px; margin: 2px; }
+QScrollBar::handle:horizontal {
+    background: #C4D8D8; border-radius: 5px; min-width: 30px;
+}
+QScrollBar::handle:horizontal:hover { background: #A8C4C4; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
+
+/* ---------- 滚动区域 ---------- */
+QScrollArea { background: transparent; border: none; }
+QScrollArea > QWidget > QWidget { background: transparent; }
+
+/* ---------- 分组框 ---------- */
+QGroupBox {
+    border: 1px solid #E2EBEB;
+    border-radius: 12px;
+    margin-top: 10px;
+    padding-top: 9px;
+    background-color: #FFFFFF;
+    font-weight: 600;
+    color: #2E4A4A;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    padding: 0 6px;
+    color: #0E7A7A;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+}
+
+/* ---------- 分隔线 ---------- */
+QFrame[frameShape="4"], QFrame[frameShape="5"] { color: #E2EBEB; }
+
+/* ---------- 弹窗 ---------- */
+QMessageBox { background-color: #FFFFFF; }
+QMessageBox QLabel { color: #1B3A3A; font-size: 13px; }
+QMessageBox QPushButton {
+    background-color: #0E7A7A; color: #FFFFFF; border: 1px solid #0A6161;
+    border-radius: 16px; padding: 7px 20px; min-width: 62px;
+}
+QMessageBox QPushButton:hover   { background-color: #14908C; }
+QMessageBox QPushButton:pressed { background-color: #0A6161; }
+QFileDialog { background-color: #F2F7F7; }

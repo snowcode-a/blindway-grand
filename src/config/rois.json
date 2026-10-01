@@ -1,0 +1,30 @@
+{
+  "video_source": "videos/demo_blindway.mp4",
+  "frame_size": [
+    1280,
+    720
+  ],
+  "regions": [
+    {
+      "name": "blindway",
+      "polygon": [
+        [
+          649,
+          208
+        ],
+        [
+          719,
+          203
+        ],
+        [
+          608,
+          719
+        ],
+        [
+          436,
+          719
+        ]
+      ]
+    }
+  ]
+}

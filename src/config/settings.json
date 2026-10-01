@@ -1,0 +1,33 @@
+{
+  "video_source": "videos/demo_blindway.mp4",
+  "model": "yolov8n.pt",
+  "confidence": 0.15,
+  "device": "cpu",
+  "tracker": "botsort.yaml",
+  "target_classes": [
+    1,
+    2,
+    3,
+    5,
+    7
+  ],
+  "dwell_threshold_sec": 1.0,
+  "confirm_frames": 3,
+  "lost_grace_sec": 1.5,
+  "alarm_cooldown_sec": 3.0,
+  "alarm_repeat_enabled": false,
+  "save_snapshot": true,
+  "play_sound": true,
+  "snapshot_dir": "output/alerts",
+  "output_video": "output/annotated.mp4",
+  "save_output_video": false,
+  "show_window": true,
+  "class_names_cn": {
+    "1": "自行车",
+    "2": "轿车",
+    "3": "摩托车",
+    "5": "公交车",
+    "7": "卡车"
+  },
+  "location": "湖北省荆州市 长江大学东校区"
+}

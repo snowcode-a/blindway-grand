@@ -1,4 +1,38 @@
-﻿# 本地预览产生的临时文件
+﻿# ---- 大文件（不上传，运行时自动获取）----
+yolov8n.pt
+*.pt
+*.onnx
+videos/*.mp4
+videos/*.avi
+!videos/README.md
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---- 编译产物 ----
+build/
+dist/
+*.spec.bak
+launcher/obj/
+launcher/bin/
+*.pdb
+*.exe
+*.ilk
+*.exp
+*.lib
+*.suo
+*.user
+
+# ---- 运行产物 ----
+output/
 *.log
+
+# ---- 本地临时 ----
+public_url.txt
 .DS_Store
 Thumbs.db
