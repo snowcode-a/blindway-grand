@@ -1,7 +1,7 @@
 {
   "video_source": "videos/demo_blindway.mp4",
   "model": "yolov8n.pt",
-  "confidence": 0.15,
+  "confidence": 0.05,
   "device": "cpu",
   "tracker": "botsort.yaml",
   "target_classes": [
