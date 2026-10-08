@@ -101,6 +101,38 @@ bool FileExists(const std::wstring &path)
 }
 
 // ---------------------------------------------------------------------------
+// 这个解释器装了本项目要用的依赖吗？
+//
+// 为什么必须查：机器上常常有好几个 Python，PATH 里那个通常是裸装的
+// （没有 torch / PyQt5）。只按"文件存在"选，会挑到裸 Python，
+// 界面一起来就 ImportError 退出码 1 —— 用户看到的就是"程序闪退"。
+// 这里跑一句 import 探一下，装没装立刻见分晓。
+// ---------------------------------------------------------------------------
+bool HasDeps(const std::wstring &python)
+{
+    std::wstring cmd = L"\"" + python + L"\" -c \"import torch,cv2,PyQt5\"";
+    std::vector<wchar_t> buf(cmd.begin(), cmd.end());
+    buf.push_back(L'\0');
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;          // 别闪黑窗口
+    PROCESS_INFORMATION pi{};
+
+    if (!CreateProcessW(nullptr, buf.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        return false;
+    }
+    WaitForSingleObject(pi.hProcess, 20000);   // 最多等 20 秒
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return code == 0;
+}
+
+// ---------------------------------------------------------------------------
 // 取 launcher.exe 所在目录
 // ---------------------------------------------------------------------------
 std::wstring ExeDir()
@@ -129,15 +161,79 @@ int main()
     std::wcout << L"======================================================" << std::endl;
 
     // ---- 1. 定位解释器 -------------------------------------------------
-    // 优先用本机已装好 torch / ultralytics / PyQt5 的那个环境
-    const std::wstring kPreferred =
-        L"C:\\Users\\snow\\.workbuddy\\binaries\\python\\envs\\default\\Scripts\\python.exe";
+    // 按优先级找一个能用的 python.exe：
+    //   1) 环境变量 BLINDWAY_PYTHON（想指定虚拟环境时设这个）
+    //   2) 几个常见安装位置
+    //   3) 交给 PATH 里的 python
+    // 不再写死某一台机器的绝对路径 —— 那样别人 clone 下来就得改代码。
+    std::wstring python;
 
-    std::wstring python = kPreferred;
-    if (!FileExists(python)) {
-        std::wcout << L"[提示] 未找到预设解释器，回退到 PATH 中的 python" << std::endl;
-        LogLine(exe_dir, L"[1/3] 预设解释器不存在, 回退 PATH 中的 python");
-        python = L"python";
+    wchar_t envbuf[MAX_PATH * 2] = {0};
+    DWORD envlen = GetEnvironmentVariableW(L"BLINDWAY_PYTHON", envbuf,
+                                           MAX_PATH * 2);
+    if (envlen > 0 && envlen < MAX_PATH * 2 && FileExists(envbuf)) {
+        python = envbuf;
+        std::wcout << L"[1/3] 解释器(来自 BLINDWAY_PYTHON): " << python
+                   << std::endl;
+        LogLine(exe_dir, L"[1/3] 解释器 = " + python + L" (环境变量)");
+    }
+
+    if (python.empty()) {
+        // 常见位置：WorkBuddy 默认环境、用户级安装、conda、系统安装。
+        // %USERPROFILE% / %LOCALAPPDATA% 运行时展开，不含固定用户名。
+        const wchar_t *kCandidates[] = {
+            L"%USERPROFILE%\\.workbuddy\\binaries\\python\\envs\\default"
+            L"\\Scripts\\python.exe",
+            L"%LOCALAPPDATA%\\Programs\\Python\\Python313\\python.exe",
+            L"%LOCALAPPDATA%\\Programs\\Python\\Python312\\python.exe",
+            L"%LOCALAPPDATA%\\Programs\\Python\\Python311\\python.exe",
+            L"%USERPROFILE%\\anaconda3\\python.exe",
+            L"%USERPROFILE%\\miniconda3\\python.exe",
+            L"C:\\Python313\\python.exe",
+            L"C:\\Python312\\python.exe",
+            L"C:\\Python311\\python.exe",
+        };
+        // 逐个试：文件存在 **而且** 装了依赖才用。
+        // 只判存在会挑到系统里的裸 Python，界面一启动就 ImportError 闪退。
+        std::wstring existsButNoDeps;
+        for (const wchar_t *cand : kCandidates) {
+            wchar_t expanded[MAX_PATH * 2] = {0};
+            DWORD n = ExpandEnvironmentStringsW(cand, expanded, MAX_PATH * 2);
+            if (n == 0 || n >= MAX_PATH * 2 || !FileExists(expanded)) {
+                continue;
+            }
+            if (HasDeps(expanded)) {
+                python = expanded;
+                break;
+            }
+            if (existsButNoDeps.empty()) {
+                existsButNoDeps = expanded;   // 记下来，稍后给个明确提示
+            }
+        }
+        if (python.empty() && !existsButNoDeps.empty()) {
+            std::wcout << L"[警告] 找到的解释器缺少依赖(需 torch/cv2/PyQt5): "
+                       << existsButNoDeps << std::endl;
+            LogLine(exe_dir, L"[1/3] 候选解释器缺依赖 = " + existsButNoDeps);
+        }
+    }
+
+    if (python.empty()) {
+        // 再给 PATH 一次机会，同样要过依赖检查
+        if (HasDeps(L"python")) {
+            python = L"python";
+            std::wcout << L"[1/3] 解释器: python (来自 PATH，依赖已就绪)"
+                       << std::endl;
+            LogLine(exe_dir, L"[1/3] 解释器 = python (PATH)");
+        } else {
+            std::wcout << L"[错误] 没找到装好依赖的 Python 解释器。"
+                       << std::endl;
+            std::wcout << L"       请先安装依赖：pip install -r requirements.txt"
+                       << std::endl;
+            std::wcout << L"       或用环境变量指定：set BLINDWAY_PYTHON=<python.exe 的完整路径>"
+                       << std::endl;
+            LogLine(exe_dir, L"[错误] 未找到装好依赖的解释器, 退出");
+            return 3;
+        }
     } else {
         std::wcout << L"[1/3] 解释器: " << python << std::endl;
         LogLine(exe_dir, L"[1/3] 解释器 = " + python);

@@ -101,6 +101,62 @@ def play_alarm_sound():
 _MODEL_CACHE = {}   # 模型路径 -> YOLO 实例 (跨引擎/线程复用，避免重复加载)
 
 
+def resolve_device(requested):
+    """把「用户想要的设备」解析成「这台机器真能用的设备」。
+
+    为什么需要这个：
+      ultralytics 会把 device 直接交给 torch，如果用户在下拉框选了 cuda
+      而机器没有可用的 CUDA，会直接抛
+          Invalid CUDA 'device=0' requested
+      整个检测线程崩掉、界面报"运行错误"。而这本该是个可以自动兜住的
+      配置问题 —— 把 device 设成 0（int）也会踩同样的坑。
+
+    返回 (可用设备, 提示信息或 None)。提示信息非空时调用方应展示给用户，
+    让用户知道"你选的 cuda 用不上，已回退到 CPU"，而不是默默降级。
+    """
+    req = requested
+
+    # 探测 CUDA 是否真的可用（torch 已在本模块导入，成本极低）
+    try:
+        import torch as _torch
+        cuda_ok = bool(_torch.cuda.is_available())
+        cuda_n = int(_torch.cuda.device_count()) if cuda_ok else 0
+    except Exception:
+        cuda_ok, cuda_n = False, 0
+
+    # ---- 已经是 CPU ----
+    if req is None or (isinstance(req, str) and req.strip().lower() == "cpu"):
+        return "cpu", None
+
+    # ---- 文本形式的 CUDA 请求 ----
+    if isinstance(req, str):
+        low = req.strip().lower()
+        if low.startswith("cuda"):
+            if cuda_ok:
+                return req, None
+            return "cpu", ("你选择的是 GPU（{}），但这台机器没有可用的 CUDA "
+                           "（torch.cuda.is_available() = False），已自动改用 CPU 运行。"
+                           "想用 GPU 需安装 CUDA 版 PyTorch。").format(req)
+        # 纯数字文本，如 "0" / "1"
+        if low.isdigit():
+            idx = int(low)
+            if cuda_ok and idx < cuda_n:
+                return idx, None
+            return "cpu", ("你指定的 CUDA 设备 {} 不可用（本机检测到 {} 个 GPU），"
+                           "已自动改用 CPU 运行。").format(idx, cuda_n)
+        # 其它无法识别的写法（例如 "0,1"）交给上层，但先兜一层
+        return "cpu", "无法识别的设备写法 {!r}，已改用 CPU 运行。".format(req)
+
+    # ---- 整数形式的 CUDA 请求（最容易踩坑：device = 0）----
+    if isinstance(req, int):
+        if cuda_ok and 0 <= req < cuda_n:
+            return req, None
+        return "cpu", ("你指定的 CUDA 设备 {} 不可用（本机检测到 {} 个 GPU），"
+                       "已自动改用 CPU 运行。").format(req, cuda_n)
+
+    return "cpu", "设备写法 {!r} 无法识别，已改用 CPU 运行。".format(req)
+
+
 class GuardEngine:
     """逐帧检测引擎。使用方式:
 
@@ -131,7 +187,10 @@ class GuardEngine:
         # 是否允许"同一辆车在一次占用中重复报警"。默认关闭（见 process() 里的说明）
         self.alarm_repeat = bool(cfg.get("alarm_repeat_enabled", False))
         self.confidence = float(cfg.get("confidence", 0.35))
-        self.device = cfg.get("device", "cpu")
+        # 设备：不能直接把用户选的传给 ultralytics —— 选了 cuda 但机器没 GPU 时
+        # 会抛 "Invalid CUDA 'device=0' requested" 直接把检测线程搞崩。
+        # 这里统一解析成「这台机器真能用的设备」，并留下提示信息供界面显示。
+        self.device, self.device_note = resolve_device(cfg.get("device", "cpu"))
         self.class_names_cn = cfg.get("class_names_cn", {})
         self.snapshot_dir = abs_path(cfg.get("snapshot_dir", "output/alerts"))
         self.save_snapshot = bool(cfg.get("save_snapshot", True))

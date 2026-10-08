@@ -17,12 +17,38 @@
 **手动运行：**
 
 ```bash
-pip install torch torchvision opencv-python PyQt5 ultralytics numpy Pillow hyperlpr3 onnxruntime
+pip install -r requirements.txt      # 依赖清单，版本都验证过
 python qt_app.py
 ```
 
+> 如果只想跑主程序，最少需要：
+> `torch torchvision opencv-python PyQt5 ultralytics numpy Pillow hyperlpr3 onnxruntime`
+> `fastapi / uvicorn / qrcode` 只有 `web_mirror.py`（网页镜像）才用到。
+
 > `yolov8n.pt`（YOLO 权重，约 6MB）未上传，首次运行时 ultralytics 会自动下载。
 > 演示视频也未上传，请自备一段俯拍盲道的视频，或在界面里点「选择视频…」。
+
+**用 Visual Studio 2022 跑（F5 一键启动）：**
+
+打开 `BlindwayGrand.sln`，直接按 F5。启动器（C++）会自动找解释器并拉起界面。
+
+它会按这个顺序找，**并且验证找到的解释器真的装了 torch / cv2 / PyQt5**：
+
+1. 环境变量 `BLINDWAY_PYTHON`（想指定虚拟环境时设这个）
+2. 几个常见安装位置（WorkBuddy 默认环境、用户级 Python、conda…）
+3. `PATH` 里的 `python`
+
+> 第 2、3 步都带依赖检查：机器上常有多个 Python，PATH 里那个往往是裸装的，
+> 直接用它会在 import 阶段闪退。检查不过就继续找下一个。
+>
+> 如果全都不可用，启动器会明确告诉你「先 `pip install -r requirements.txt`」，
+> 而不是丢一个看不懂的报错。
+
+手动指定解释器：
+
+```bat
+set BLINDWAY_PYTHON=D:\myenv\Scripts\python.exe
+```
 
 ---
 
