@@ -345,3 +345,63 @@ select.input{appearance:none;background-image:linear-gradient(45deg,transparent 
   .page.active{animation:none}
   .scan-line.on{animation:none}
 }
+
+/* ==========================================================================
+   演示页专属：标注"浏览器里做不到"的按钮
+   --------------------------------------------------------------------------
+   这些按钮对应选本地文件、读写 rois.json、打开资源管理器、导出文件 ——
+   静态站没有后端，做不到。以前它们和真按钮长得一样、点了没反应，
+   很容易被当成"坏了"。
+
+   现在：降一档视觉权重 + 右上角"演示"角标 + 点击弹出说明（见 app.js）。
+   角标用 ::after 绝对定位，不改变按钮原有布局高度。
+   ========================================================================== */
+[data-demo]{
+  position:relative;
+  opacity:.72;
+  border-style:dashed;
+  cursor:help;
+}
+[data-demo]:hover{
+  opacity:1;
+  border-style:solid;
+}
+[data-demo]::after{
+  content:"演示";
+  position:absolute;
+  top:-7px;
+  right:-4px;
+  font-size:9px;
+  line-height:1;
+  padding:2px 4px;
+  border-radius:3px;
+  background:#A8BFBF;
+  color:#fff;
+  letter-spacing:.5px;
+  pointer-events:none;
+  font-weight:600;
+}
+
+/* 页面里的一行说明，讲清这个演示站是什么、哪些能点 */
+.demo-note{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  margin:0 0 14px;
+  padding:10px 13px;
+  border-radius:9px;
+  background:#F0F8F8;
+  border:1px solid #D6E9E9;
+  color:#5A7575;
+  font-size:12.5px;
+  line-height:1.65;
+}
+.demo-note b{color:#0E7A7A;font-weight:600}
+.demo-note .ico{flex:0 0 auto;color:#0E7A7A;font-size:13px;line-height:1.5}
+/* ⚠ flex 子项默认 min-width:auto，长中文串不会收缩，窄屏下会把文字顶出容器
+   （实测手机宽度 390px 时说明条右侧被裁掉）。必须显式给 min-width:0 才能正常换行。 */
+.demo-note > span{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+
+/* data-info：演示页里**真的能用**、只是补充一句说明的按钮。
+   不能加"演示"角标 —— 那会和"能点"自相矛盾。只给个问号提示。 */
+[data-info]{cursor:help}

@@ -284,4 +284,109 @@
       toast('已选中第 ' + (i + 1) + ' 个角点（在真实软件里拖动画面上的手柄即可调整）');
     });
   });
+
+  /* ======================================================================
+     演示页可用性处理
+     ----------------------------------------------------------------------
+     这个静态站是桌面软件的"镜像展示"。有一批按钮对应的是浏览器做不到的
+     操作（选本地文件、读写 rois.json、打开资源管理器、导出文件）。
+     它们看上去和真按钮一样，点了却毫无反应 —— 评委很容易以为"坏了"。
+
+     这里统一处理：
+       1) 带 data-demo 的按钮降一档视觉权重，并加"演示"角标
+       2) 点击时弹出说明，讲清"在桌面软件里它会做什么"
+       3) 少数在浏览器里本来就能做的（ROI 相关），做成真的能用
+     ====================================================================== */
+
+  var DEFAULT_ROI = [[649, 208], [719, 203], [608, 719], [436, 719]];
+
+  function paintCoordList(pts) {
+    var box = $('#coordList');
+    if (!box) return;
+    if (!pts.length) {
+      box.innerHTML = '<div style="color:#829999">（尚未载入多边形）</div>';
+      return;
+    }
+    box.innerHTML = pts.map(function (p, i) {
+      return '<div style="cursor:pointer">' + (i + 1) + '. (' + p[0] + ', ' + p[1] + ')</div>';
+    }).join('');
+    // 重新绑定点击高亮
+    var items = $$('#coordList > div');
+    items.forEach(function (el, i) {
+      el.addEventListener('click', function () {
+        items.forEach(function (o) { o.style.color = ''; o.style.fontWeight = ''; });
+        el.style.color = '#0E7A7A';
+        el.style.fontWeight = '700';
+        toast('已选中第 ' + (i + 1) + ' 个角点'
+          + (pts.length === 4 ? '（在真实软件里拖动画面上的手柄即可调整）' : ''));
+      });
+    });
+  }
+
+  function setRegionHint(n) {
+    var h = $('#roiRegionHint');
+    if (h) h.textContent = n > 0 ? ('区域 1：' + n + ' 个顶点') : '（暂无区域）';
+  }
+
+  /* ---- 1a) data-demo：演示页做不到的操作，点一下说明它在软件里的作用 ---- */
+  $$('[data-demo]').forEach(function (b) {
+    b.setAttribute('title', '演示页不可用 —— 点一下看说明');
+    b.addEventListener('click', function () {
+      toast(b.dataset.demo);
+    });
+  });
+
+  /* ---- 1b) data-info：演示页真能用，只是补充一句说明 ---- */
+  $$('[data-info]').forEach(function (b) {
+    b.setAttribute('title', b.dataset.info);
+    // 有专属逻辑的按钮（下面的 ROI 那几个）自己会弹提示，这里不重复绑
+    if (b.id) return;
+    b.addEventListener('click', function () {
+      toast(b.dataset.info);
+    });
+  });
+
+  /* ---- 2) ROI 相关：在浏览器里做成真能用的 ---- */
+  var roiLoad = $('#roiLoad');
+  if (roiLoad) {
+    roiLoad.addEventListener('click', function () {
+      paintCoordList(DEFAULT_ROI);
+      setRegionHint(DEFAULT_ROI.length);
+      toast('已载入当前 ROI 的 4 个角点（真实软件里可直接拖动画面上的手柄微调）');
+    });
+  }
+
+  var roiClear = $('#roiClear');
+  if (roiClear) {
+    roiClear.addEventListener('click', function () {
+      paintCoordList([]);
+      setRegionHint(0);
+      toast('已清空当前编辑的多边形（已保存的区域不受影响）');
+    });
+  }
+
+  var roiDeleteAll = $('#roiDeleteAll');
+  if (roiDeleteAll) {
+    roiDeleteAll.addEventListener('click', function () {
+      paintCoordList([]);
+      setRegionHint(0);
+      toast('演示页不会真的删除 —— 这是作者在该路段实测标定的区域');
+    });
+  }
+
+  var roiReload = $('#roiReload');
+  if (roiReload) {
+    roiReload.addEventListener('click', function () {
+      paintCoordList(DEFAULT_ROI);
+      setRegionHint(DEFAULT_ROI.length);
+      toast('已恢复为 config/rois.json 里的区域（4 个顶点）');
+    });
+  }
+
+  var roiSave = $('#roiSave');
+  if (roiSave) {
+    roiSave.addEventListener('click', function () {
+      toast('演示页不写文件。真实软件里这一步会把多边形写入 config/rois.json 并立即生效。');
+    });
+  }
 })();

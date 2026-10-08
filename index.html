@@ -59,6 +59,13 @@
         <p>检测画面 · 区域内目标 · 实时统计</p>
       </div>
 
+      <div class="demo-note">
+        <span class="ico">ℹ</span>
+        <span>这是<b>桌面软件的界面演示</b>，画面与数据都是系统真实输出。
+        可以点的：<b>左侧四个页面</b>、<b>播放检测演示</b>、<b>开始/暂停</b>、<b>保存地点</b>。
+        带<b>「演示」</b>角标的按钮对应选文件、读写配置、导出等操作，浏览器做不到 —— 点一下会说明它在软件里的作用。</span>
+      </div>
+
       <div class="cols">
         <div class="col-main">
           <div class="card">
@@ -105,8 +112,8 @@
           <div class="group">
             <div class="group-title">视频源</div>
             <input class="input" value="demo_blindway.mp4" readonly>
-            <button class="btn block">选择视频…</button>
-            <button class="btn block">用测试视频</button>
+            <button class="btn block" data-demo="在桌面软件里弹出文件选择框，可加载本地视频或接入 RTSP 摄像头。浏览器受安全限制无法访问本地文件，所以演示页不可用。">选择视频…</button>
+            <button class="btn block" data-demo="在桌面软件里会直接载入 videos/demo_blindway.mp4 开始检测。演示页请点上面的「播放检测演示」。">用测试视频</button>
             <select class="input"><option>视频文件</option><option>本地摄像头 (0)</option><option>RTSP / 网络流</option></select>
           </div>
 
@@ -135,6 +142,13 @@
       <div class="page-head">
         <h1>区域标定</h1>
         <p>在画面上拖动 4 个角点，框出盲道区域，保存后立即生效</p>
+      </div>
+
+      <div class="demo-note">
+        <span class="ico">ℹ</span>
+        <span>这是作者在<b>长江大学东校区</b>实地标定的区域（4 个顶点，61728 px²）。
+        <b>点右侧角点可高亮查看</b>；<b>「载入当前 ROI」「清空当前多边形」「重新加载 rois.json」在演示页真的能用</b>。
+        带<b>「演示」</b>角标的（保存区域 / 删除全部 ROI）需要写配置文件，浏览器做不到。</span>
       </div>
 
       <div class="cols">
@@ -166,16 +180,16 @@
               <div>3. (608, 719)</div>
               <div>4. (436, 719)</div>
             </div>
-            <button class="btn block">载入当前 ROI 到编辑器</button>
-            <button class="btn block" disabled>撤销上一个顶点</button>
-            <button class="btn block">清空当前多边形</button>
-            <button class="btn block">删除全部 ROI</button>
-            <button class="btn primary block">保存区域</button>
+            <button class="btn block" id="roiLoad" data-info="已把保存的 4 个角点读进编辑器。在桌面软件里可直接拖动画面上的手柄微调。">载入当前 ROI 到编辑器</button>
+            <button class="btn block" id="roiUndo" disabled>撤销上一个顶点</button>
+            <button class="btn block" id="roiClear" data-info="清空当前正在编辑的多边形（不影响已保存的区域）。演示页会真的清空。">清空当前多边形</button>
+            <button class="btn block" id="roiDeleteAll" data-demo="在桌面软件里会删除全部已保存的 ROI 区域。演示页展示的是作者实地标定的区域，不做修改。">删除全部 ROI</button>
+            <button class="btn primary block" id="roiSave" data-demo="在桌面软件里把当前多边形写入 config/rois.json 并立即生效。浏览器不能写文件。">保存区域</button>
           </div>
           <div class="group">
             <div class="group-title">已有区域</div>
-            <div class="hint">区域 1：4 个顶点</div>
-            <button class="btn block">重新加载 rois.json</button>
+            <div class="hint" id="roiRegionHint">区域 1：4 个顶点</div>
+            <button class="btn block" id="roiReload" data-info="重新读取 config/rois.json。演示页会恢复为这里的默认区域。">重新加载 rois.json</button>
           </div>
         </aside>
       </div>
@@ -186,6 +200,13 @@
       <div class="page-head">
         <h1>报警记录</h1>
         <p>每一次占用报警的证据截图与详情</p>
+      </div>
+
+      <div class="demo-note">
+        <span class="ico">ℹ</span>
+        <span>下面 3 条记录来自系统<b>真实运行输出</b>（非构造数据）。
+        <b>点表格任意一行</b>可切换右侧证据图；<b>证据图支持滚轮缩放、拖拽平移、双击复位</b>。
+        导出 CSV 与打开目录需要文件系统权限，只做说明。</span>
       </div>
 
       <div class="cols">
@@ -205,9 +226,9 @@
               </table>
             </div>
             <div class="row-actions">
-              <button class="btn">打开截图目录</button>
-              <button class="btn">导出 CSV</button>
-              <button class="btn">清空记录</button>
+              <button class="btn" data-demo="在桌面软件里打开 output/alerts 文件夹，里面是每次报警自动生成的证据图。">打开截图目录</button>
+              <button class="btn" data-demo="在桌面软件里把报警记录导出成 CSV，含时间、目标 ID、停留时长与车辆特征。">导出 CSV</button>
+              <button class="btn" data-demo="在桌面软件里清空当前报警记录列表。演示页展示的是预置真实样本，不做修改。">清空记录</button>
             </div>
           </div>
         </div>
@@ -248,6 +269,12 @@
         <p>本次检测的统计汇总与证据导出</p>
       </div>
 
+      <div class="demo-note">
+        <span class="ico">ℹ</span>
+        <span>统计数字与柱状图都来自<b>那次真实检测的逐帧记录</b>，不是示意图。
+        页面上没有需要点击的操作 —— 真实软件里这一页还有导出报告与输出目录按钮。</span>
+      </div>
+
       <div class="stat-grid">
         <div class="card stat-card"><div class="stat-cap">已处理帧数</div><div class="stat-val accent">141</div><div class="stat-sub">共 141 帧</div></div>
         <div class="card stat-card"><div class="stat-cap">占用报警</div><div class="stat-val alarm">3</div><div class="stat-sub">已触发报警</div></div>
@@ -276,8 +303,8 @@
               <div>结论：检测到车辆在盲道区域内停留超时，已生成带时间戳与车辆特征的证据图，可用于后续执法/劝导。</div>
             </div>
             <div class="row-actions">
-              <button class="btn primary">导出证据 CSV</button>
-              <button class="btn">打开输出目录</button>
+              <button class="btn primary" data-demo="在桌面软件里把本次报警的证据信息导出成 CSV，可与证据图一起归档。">导出证据 CSV</button>
+              <button class="btn" data-demo="在桌面软件里打开 output 输出目录，查看标注视频与证据图。">打开输出目录</button>
             </div>
           </div>
         </aside>
