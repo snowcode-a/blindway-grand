@@ -93,6 +93,53 @@ h1,h2,h3{margin:0;letter-spacing:-.3px}
 .dot{width:8px;height:8px;border-radius:50%;background:#4ECFA2;flex:0 0 auto}
 .engine-sub{font-size:11px;color:#A8D8D8;margin-top:3px;font-family:var(--mono)}
 
+/* ==========================================================================
+   ROI 可拖拽标定（区域标定页）
+   --------------------------------------------------------------------------
+   背景：这一页原来只放了一张 roicanvas.jpg，四个"角点"是画在图片像素里的，
+   看着像手柄但根本拖不动（用户反馈"角点无法移动"）。
+   现在改成：图片 + 一层 SVG 连线 + 4 个真手柄 div，坐标与图片像素一一对应。
+   ========================================================================== */
+.roi-svg{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  pointer-events:none;   /* 不挡住下面的手柄 */
+  z-index:2;
+}
+.roi-handles{position:absolute;inset:0;z-index:3;pointer-events:none}
+
+.roi-handle{
+  position:absolute;
+  width:26px;
+  height:26px;
+  margin:-13px 0 0 -13px;      /* 让圆心对准坐标点 */
+  border-radius:50%;
+  background:#fff;
+  border:2px solid var(--teal,#0E7A7A);
+  box-shadow:0 1px 5px rgba(10,50,50,.4);
+  color:var(--teal,#0E7A7A);
+  font:600 11px/22px var(--mono,monospace);
+  text-align:center;
+  cursor:grab;
+  pointer-events:auto;
+  touch-action:none;           /* 手机上拖动不触发页面滚动 */
+  user-select:none;
+  transition:transform .08s ease, box-shadow .08s ease;
+}
+.roi-handle:hover{transform:scale(1.12)}
+.roi-handle.dragging{
+  cursor:grabbing;
+  transform:scale(1.22);
+  box-shadow:0 3px 12px rgba(10,50,50,.55);
+  border-color:#0A6161;
+}
+/* 手机上手指粗，手柄做大一点更好抓 */
+@media (max-width:760px){
+  .roi-handle{width:32px;height:32px;margin:-16px 0 0 -16px;font-size:12px;line-height:28px}
+}
+
 /* ---------------- 内容区 ---------------- */
 .content{flex:1;min-width:0;padding:16px 18px 8px}
 /* ⚠ 这里刻意不用淡入动画。

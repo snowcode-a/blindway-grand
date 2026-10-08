@@ -41,6 +41,14 @@
     if (push !== false && location.hash.slice(1) !== name) {
       try { history.replaceState(null, '', '#' + name); } catch (e) { location.hash = name; }
     }
+    // ★ 切到区域标定页时必须重算 ROI 手柄位置。
+    //   原因：隐藏页（.page{display:none}）里所有元素的
+    //   getBoundingClientRect() 都是 0，首次渲染若发生在页面隐藏时，
+    //   算出来的手柄坐标就是 (0,0)，全堆在左上角且再也不会更新。
+    //   这里用 rAF 等浏览器完成布局后再算。
+    if (name === 'roi' && typeof window.__roiRelayout === 'function') {
+      requestAnimationFrame(function () { window.__roiRelayout(); });
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -300,29 +308,6 @@
 
   var DEFAULT_ROI = [[649, 208], [719, 203], [608, 719], [436, 719]];
 
-  function paintCoordList(pts) {
-    var box = $('#coordList');
-    if (!box) return;
-    if (!pts.length) {
-      box.innerHTML = '<div style="color:#829999">（尚未载入多边形）</div>';
-      return;
-    }
-    box.innerHTML = pts.map(function (p, i) {
-      return '<div style="cursor:pointer">' + (i + 1) + '. (' + p[0] + ', ' + p[1] + ')</div>';
-    }).join('');
-    // 重新绑定点击高亮
-    var items = $$('#coordList > div');
-    items.forEach(function (el, i) {
-      el.addEventListener('click', function () {
-        items.forEach(function (o) { o.style.color = ''; o.style.fontWeight = ''; });
-        el.style.color = '#0E7A7A';
-        el.style.fontWeight = '700';
-        toast('已选中第 ' + (i + 1) + ' 个角点'
-          + (pts.length === 4 ? '（在真实软件里拖动画面上的手柄即可调整）' : ''));
-      });
-    });
-  }
-
   function setRegionHint(n) {
     var h = $('#roiRegionHint');
     if (h) h.textContent = n > 0 ? ('区域 1：' + n + ' 个顶点') : '（暂无区域）';
@@ -346,39 +331,266 @@
     });
   });
 
-  /* ---- 2) ROI 相关：在浏览器里做成真能用的 ---- */
+  /* ======================================================================
+     区域标定页：真正可拖拽的 ROI 手柄
+     ----------------------------------------------------------------------
+     背景：这一页原来只放了一张 roicanvas.jpg，四个"角点"是画在图片像素里
+     的装饰，看着像手柄但拖不动 —— 用户反馈「roi 的四个角点依旧无法移动」。
+
+     现在按坐标动态生成 4 个手柄 + 一条 SVG 连线，坐标空间就是原图尺寸
+     （1280×720，与 config/rois.json 一致），所以右侧显示的坐标是真实坐标，
+     不是估计值。指针位置通过图片的 getBoundingClientRect() 换算，
+     因此窗口缩放、手机窄屏下都准确。
+     ====================================================================== */
+
+  var IMG_W = 1280, IMG_H = 720;        // roicanvas.jpg 的原始尺寸
+  // DEFAULT_ROI 在下面统一声明一次（见"演示页可用性处理"段末）
+
+  var roiState = {
+    pts: DEFAULT_ROI.map(function (p) { return [p[0], p[1]] }),
+    dragIdx: -1,
+    mode: 'drag'                        // drag = 拖拽四点；click = 点击加点
+  };
+
+  var roiImg = $('#roiImg'),
+      roiSvg = $('#roiSvg'),
+      roiHandles = $('#roiHandles'),
+      roiCanvas = $('#roiCanvas');
+
+  function imgRect() { return roiImg ? roiImg.getBoundingClientRect() : null; }
+
+  function paintCoordList() {
+    var box = $('#coordList');
+    if (!box) return;
+    var pts = roiState.pts;
+    if (!pts.length) {
+      box.innerHTML = '<div style="color:#829999">（尚未载入多边形）</div>';
+      return;
+    }
+    box.innerHTML = pts.map(function (p, i) {
+      return '<div data-pt="' + i + '" style="cursor:pointer">'
+        + (i + 1) + '. (' + Math.round(p[0]) + ', ' + Math.round(p[1]) + ')</div>';
+    }).join('');
+    $$('#coordList > div').forEach(function (el, i) {
+      el.addEventListener('click', function () {
+        $$('#coordList > div').forEach(function (o) {
+          o.style.color = ''; o.style.fontWeight = '';
+        });
+        el.style.color = '#0E7A7A';
+        el.style.fontWeight = '700';
+        highlightHandle(i);
+        toast('已选中第 ' + (i + 1) + ' 个角点（' + Math.round(pts[i][0])
+          + ', ' + Math.round(pts[i][1]) + '）');
+      });
+    });
+  }
+
+  function highlightHandle(i) {
+    $$('.roi-handle').forEach(function (h, k) {
+      h.style.boxShadow = k === i
+        ? '0 0 0 5px rgba(14,122,122,.28), 0 2px 8px rgba(10,50,50,.45)'
+        : '';
+    });
+  }
+
+  /* 把图片像素坐标换算成相对图片左上角的 CSS 像素 */
+  function toScreen(p) {
+    var r = imgRect();
+    if (!r) return { x: 0, y: 0 };
+    return { x: r.left + p[0] / IMG_W * r.width,
+             y: r.top + p[1] / IMG_H * r.height };
+  }
+
+  /* 指针位置 -> 图片像素坐标（并夹在图片范围内） */
+  function toImage(clientX, clientY) {
+    var r = imgRect();
+    if (!r || !r.width) return [0, 0];
+    var x = (clientX - r.left) / r.width * IMG_W;
+    var y = (clientY - r.top) / r.height * IMG_H;
+    return [Math.max(0, Math.min(IMG_W, Math.round(x))),
+            Math.max(0, Math.min(IMG_H, Math.round(y)))];
+  }
+
+  function renderRoi() {
+    var r = imgRect();
+    if (!r) return;
+    // ★ 页面隐藏时（.page{display:none}）图片 rect 全是 0。
+    //   此时如果照样写手柄位置，就会把四个点全钉在 (0,0)，
+    //   而且之后不会自动纠正 —— 必须直接返回，等页面可见时再算。
+    //   （实测踩过：手柄全堆在画布左上角。）
+    if (r.width < 60 || r.height < 30) {
+      window.__roiNeedsLayout = true;
+      return;
+    }
+    window.__roiNeedsLayout = false;
+
+    // SVG 覆盖层对齐到图片实际渲染区域（图片按宽度铺满，高度自适应）
+    if (roiSvg) {
+      roiSvg.style.left = (r.left - roiCanvas.getBoundingClientRect().left) + 'px';
+      roiSvg.style.top = (r.top - roiCanvas.getBoundingClientRect().top) + 'px';
+      roiSvg.style.width = r.width + 'px';
+      roiSvg.style.height = r.height + 'px';
+      roiSvg.setAttribute('viewBox', '0 0 ' + IMG_W + ' ' + IMG_H);
+      roiSvg.setAttribute('preserveAspectRatio', 'none');
+      var poly = roiState.pts.map(function (p) { return p[0] + ',' + p[1]; }).join(' ');
+      roiSvg.innerHTML = roiState.pts.length >= 3
+        ? '<polygon points="' + poly + '" fill="rgba(14,122,122,.20)" '
+          + 'stroke="#0E7A7A" stroke-width="3" stroke-linejoin="round"/>'
+        : (roiState.pts.length === 2
+          ? '<line x1="' + roiState.pts[0][0] + '" y1="' + roiState.pts[0][1]
+            + '" x2="' + roiState.pts[1][0] + '" y2="' + roiState.pts[1][1]
+            + '" stroke="#0E7A7A" stroke-width="3"/>'
+          : '');
+    }
+
+    // 手柄：用**百分比**定位，相对 .roi-handles（其 inset:0 与图片完全重合，
+    // 因为 .canvas 无 padding、图片是第一个子元素且 width:100%）。
+    // 用百分比的好处：窗口缩放、手机横竖屏切换时手柄自动跟着走，不必重算。
+    if (roiHandles) {
+      roiHandles.innerHTML = roiState.pts.map(function (p, i) {
+        var xp = p[0] / IMG_W * 100;
+        var yp = p[1] / IMG_H * 100;
+        return '<div class="roi-handle" data-idx="' + i + '" '
+          + 'style="left:' + xp.toFixed(4) + '%;top:' + yp.toFixed(4) + '%" '
+          + 'title="角点 ' + (i + 1) + '：(' + Math.round(p[0]) + ', '
+          + Math.round(p[1]) + ')　按住拖动">' + (i + 1) + '</div>';
+      }).join('');
+      bindHandles();
+    }
+  }
+
+  function bindHandles() {
+    $$('.roi-handle').forEach(function (h) {
+      var idx = +h.dataset.idx;
+      h.addEventListener('pointerdown', function (e) {
+        if (roiState.mode !== 'drag') return;
+        e.preventDefault();
+        e.stopPropagation();
+        roiState.dragIdx = idx;
+        h.classList.add('dragging');
+        h.setPointerCapture && h.setPointerCapture(e.pointerId);
+      });
+      h.addEventListener('pointermove', function (e) {
+        if (roiState.dragIdx !== idx) return;
+        e.preventDefault();
+        var p = toImage(e.clientX, e.clientY);
+        roiState.pts[idx] = p;
+        // 同样用百分比（与 renderRoi 保持一致）
+        h.style.left = (p[0] / IMG_W * 100).toFixed(4) + '%';
+        h.style.top = (p[1] / IMG_H * 100).toFixed(4) + '%';
+        h.title = '角点 ' + (idx + 1) + '：(' + p[0] + ', ' + p[1] + ')　按住拖动';
+        updateCoordRow(idx);
+        updateSvgOnly();
+      });
+      var end = function (e) {
+        if (roiState.dragIdx !== idx) return;
+        roiState.dragIdx = -1;
+        h.classList.remove('dragging');
+        h.releasePointerCapture && e.pointerId !== undefined
+          && h.hasPointerCapture && h.hasPointerCapture(e.pointerId)
+          && h.releasePointerCapture(e.pointerId);
+        setRegionHint(roiState.pts.length);
+        var p = roiState.pts[idx];
+        toast('角点 ' + (idx + 1) + ' 已移到 (' + p[0] + ', ' + p[1] + ')');
+      };
+      h.addEventListener('pointerup', end);
+      h.addEventListener('pointercancel', end);
+    });
+  }
+
+  /* 只重画连线，别重建手柄 —— 否则拖动过程中会把手柄本身删掉 */
+  function updateSvgOnly() {
+    if (!roiSvg) return;
+    var poly = roiState.pts.map(function (p) { return p[0] + ',' + p[1]; }).join(' ');
+    roiSvg.innerHTML = roiState.pts.length >= 3
+      ? '<polygon points="' + poly + '" fill="rgba(14,122,122,.20)" '
+        + 'stroke="#0E7A7A" stroke-width="3" stroke-linejoin="round"/>'
+      : '';
+  }
+
+  function updateCoordRow(i) {
+    var rows = $$('#coordList > div');
+    if (rows[i] && roiState.pts[i]) {
+      rows[i].textContent = (i + 1) + '. (' + roiState.pts[i][0] + ', '
+        + roiState.pts[i][1] + ')';
+    }
+  }
+
+  /* 点击加点模式：在图片上点一下加一个顶点 */
+  var downPt = null;
+  if (roiImg) {
+    roiImg.addEventListener('pointerdown', function (e) {
+      if (roiState.mode !== 'click') return;
+      downPt = [e.clientX, e.clientY];
+    });
+    roiImg.addEventListener('pointerup', function (e) {
+      if (roiState.mode !== 'click' || !downPt) return;
+      // 拖动超过 6px 认为是误触（比如想平移图片）
+      if (Math.abs(e.clientX - downPt[0]) > 6
+        || Math.abs(e.clientY - downPt[1]) > 6) { downPt = null; return; }
+      downPt = null;
+      roiState.pts.push(toImage(e.clientX, e.clientY));
+      paintCoordList();
+      renderRoi();
+      setRegionHint(roiState.pts.length);
+      toast('已添加第 ' + roiState.pts.length + ' 个顶点');
+    });
+  }
+
+  /* 窗口尺寸变化时重新按比例摆放手柄 */
+  var roiResizeTimer = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(roiResizeTimer);
+    roiResizeTimer = setTimeout(renderRoi, 120);
+  });
+
+  /* 供 showPage() 调用：切到本页时重新定位手柄 */
+  window.__roiRelayout = renderRoi;
+  /* 让 imgRect() 在页面隐藏时也能拿到"假设可见"的尺寸 —— 不能真这么做，
+     所以改为：只要检测到图片 rect 为 0 就标记"位置待定"，等可见时再算。 */
+  window.__roiNeedsLayout = true;
+
+  /* ---- 按钮 ---- */
   var roiLoad = $('#roiLoad');
   if (roiLoad) {
     roiLoad.addEventListener('click', function () {
-      paintCoordList(DEFAULT_ROI);
-      setRegionHint(DEFAULT_ROI.length);
-      toast('已载入当前 ROI 的 4 个角点（真实软件里可直接拖动画面上的手柄微调）');
+      roiState.pts = DEFAULT_ROI.map(function (p) { return [p[0], p[1]] });
+      paintCoordList(); renderRoi(); setRegionHint(roiState.pts.length);
+      toast('已载入已保存的 ROI（4 个角点），可以直接拖动圆点微调');
     });
   }
 
   var roiClear = $('#roiClear');
   if (roiClear) {
     roiClear.addEventListener('click', function () {
-      paintCoordList([]);
-      setRegionHint(0);
-      toast('已清空当前编辑的多边形（已保存的区域不受影响）');
+      roiState.pts = [];
+      paintCoordList(); renderRoi(); setRegionHint(0);
+      toast('已清空当前多边形（已保存的区域不受影响）');
+    });
+  }
+
+  var roiUndo = $('#roiUndo');
+  if (roiUndo) {
+    roiUndo.addEventListener('click', function () {
+      if (!roiState.pts.length) { toast('当前没有可撤销的顶点'); return; }
+      roiState.pts.pop();
+      paintCoordList(); renderRoi(); setRegionHint(roiState.pts.length);
+      toast('已撤销一个顶点，剩余 ' + roiState.pts.length + ' 个');
     });
   }
 
   var roiDeleteAll = $('#roiDeleteAll');
   if (roiDeleteAll) {
     roiDeleteAll.addEventListener('click', function () {
-      paintCoordList([]);
-      setRegionHint(0);
-      toast('演示页不会真的删除 —— 这是作者在该路段实测标定的区域');
+      toast(roiDeleteAll.dataset.demo);
     });
   }
 
   var roiReload = $('#roiReload');
   if (roiReload) {
     roiReload.addEventListener('click', function () {
-      paintCoordList(DEFAULT_ROI);
-      setRegionHint(DEFAULT_ROI.length);
+      roiState.pts = DEFAULT_ROI.map(function (p) { return [p[0], p[1]] });
+      paintCoordList(); renderRoi(); setRegionHint(roiState.pts.length);
       toast('已恢复为 config/rois.json 里的区域（4 个顶点）');
     });
   }
@@ -386,7 +598,39 @@
   var roiSave = $('#roiSave');
   if (roiSave) {
     roiSave.addEventListener('click', function () {
-      toast('演示页不写文件。真实软件里这一步会把多边形写入 config/rois.json 并立即生效。');
+      toast(roiSave.dataset.demo);
     });
   }
+
+  /* 编辑方式切换 */
+  var roiMode = $('#roiMode');
+  if (roiMode) {
+    roiMode.addEventListener('change', function () {
+      roiState.mode = roiMode.value;
+      var hint = $('#roiModeHint');
+      var tip = document.querySelector('.roi-canvas')
+        && document.querySelector('.roi-canvas').previousElementSibling;
+      if (roiState.mode === 'click') {
+        if (hint) hint.textContent = '在画面上单击添加顶点，右键「撤销上一个顶点」回退。至少 3 个顶点。';
+        toast('已切到点击加点模式：在画面上单击即可加顶点');
+      } else {
+        if (hint) hint.textContent = '画面上有 4 个可拖拽的角点（编号 1~4），按住任意一个拖动即可自由拉伸盲道区域。';
+        toast('已切回拖拽四点模式');
+      }
+    });
+  }
+
+  /* 初始渲染：等图片加载完再摆手柄（否则拿不到正确的 rect）。
+     注意如果当前不在 ROI 页，renderRoi() 会自行跳过（rect 为 0），
+     等 showPage('roi') 时通过 window.__roiRelayout 补算。 */
+  if (roiImg) {
+    if (roiImg.complete) { renderRoi(); }
+    else { roiImg.addEventListener('load', renderRoi); }
+  }
+  window.addEventListener('load', function () {
+    setTimeout(renderRoi, 60);
+    // 如果直接把 #roi 写进 URL，showPage 在初次调用时 __roiRelayout 已就绪，
+    // 但首帧布局可能还没完成，这里再补一次。
+    if (location.hash.slice(1) === 'roi') setTimeout(renderRoi, 150);
+  });
 })();

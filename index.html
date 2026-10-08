@@ -147,8 +147,8 @@
       <div class="demo-note">
         <span class="ico">ℹ</span>
         <span>这是作者在<b>长江大学东校区</b>实地标定的区域（4 个顶点，61728 px²）。
-        <b>点右侧角点可高亮查看</b>；<b>「载入当前 ROI」「清空当前多边形」「重新加载 rois.json」在演示页真的能用</b>。
-        带<b>「演示」</b>角标的（保存区域 / 删除全部 ROI）需要写配置文件，浏览器做不到。</span>
+        画面上的<b>四个编号圆点可以直接拖动</b>，右侧坐标会实时更新 —— 和桌面软件里手感一致。
+        「保存区域」「删除全部 ROI」需要写配置文件，浏览器做不到。</span>
       </div>
 
       <div class="cols">
@@ -156,33 +156,40 @@
           <div class="card">
             <div class="card-head">
               <span class="card-title">标定画面</span>
-              <span class="card-tools"><span class="tip">拖动角点自由变形 · 滚轮缩放 · 拖拽平移</span></span>
+              <span class="card-tools"><span class="tip">拖动编号圆点即可改区域 · 坐标实时更新</span></span>
             </div>
-            <div class="canvas roi-canvas">
+            <div class="canvas roi-canvas" id="roiCanvas">
               <img src="assets/roicanvas.jpg" alt="区域标定：画面中盲道上覆盖着可拖拽的四角形区域" id="roiImg">
+              <!-- 可拖拽手柄由 app.js 按坐标动态生成。
+                   原来这四个点只是"画在图片像素里"，看着像手柄但拖不动。 -->
+              <svg class="roi-svg" id="roiSvg" aria-hidden="true"></svg>
+              <div class="roi-handles" id="roiHandles"></div>
             </div>
-            <div class="hint">提示：四个角点分别落在盲道两端的左右边缘，覆盖整条盲道即可。保存后检测立刻按新区域判定。</div>
+            <div class="hint" id="roiHint">提示：四个角点分别落在盲道两端的左右边缘，覆盖整条盲道即可。拖动圆点试试，坐标会跟着变。</div>
           </div>
         </div>
 
         <aside class="col-side">
           <div class="group">
             <div class="group-title">编辑方式</div>
-            <select class="input"><option>拖拽四点（自由变形）</option><option>点击加点（任意多边形）</option></select>
-            <div class="hint">画面上有 4 个可拖拽的角点（编号 1~4），按住任意一个拖动即可自由拉伸盲道区域。</div>
+            <select class="input" id="roiMode">
+              <option value="drag">拖拽四点（自由变形）</option>
+              <option value="click">点击加点（任意多边形）</option>
+            </select>
+            <div class="hint" id="roiModeHint">画面上有 4 个可拖拽的角点（编号 1~4），按住任意一个拖动即可自由拉伸盲道区域。</div>
           </div>
           <div class="group">
             <div class="group-title">标定操作</div>
             <div class="coord-title">四边形四个角点：</div>
             <div class="coord" id="coordList">
-              <div>1. (649, 208)</div>
-              <div>2. (719, 203)</div>
-              <div>3. (608, 719)</div>
-              <div>4. (436, 719)</div>
+              <div data-pt="0">1. (649, 208)</div>
+              <div data-pt="1">2. (719, 203)</div>
+              <div data-pt="2">3. (608, 719)</div>
+              <div data-pt="3">4. (436, 719)</div>
             </div>
-            <button class="btn block" id="roiLoad" data-info="已把保存的 4 个角点读进编辑器。在桌面软件里可直接拖动画面上的手柄微调。">载入当前 ROI 到编辑器</button>
-            <button class="btn block" id="roiUndo" disabled>撤销上一个顶点</button>
-            <button class="btn block" id="roiClear" data-info="清空当前正在编辑的多边形（不影响已保存的区域）。演示页会真的清空。">清空当前多边形</button>
+            <button class="btn block" id="roiLoad" data-info="把已保存的 4 个角点重新读进编辑器。">载入当前 ROI 到编辑器</button>
+            <button class="btn block" id="roiUndo">撤销上一个顶点</button>
+            <button class="btn block" id="roiClear" data-info="清空当前正在编辑的多边形（不影响已保存的区域）。">清空当前多边形</button>
             <button class="btn block" id="roiDeleteAll" data-demo="在桌面软件里会删除全部已保存的 ROI 区域。演示页展示的是作者实地标定的区域，不做修改。">删除全部 ROI</button>
             <button class="btn primary block" id="roiSave" data-demo="在桌面软件里把当前多边形写入 config/rois.json 并立即生效。浏览器不能写文件。">保存区域</button>
           </div>
