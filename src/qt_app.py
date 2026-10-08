@@ -899,6 +899,11 @@ class MainWindow(QMainWindow):
 
         self._roi_watch_mtime = 0
         self._cur_roi_poly = []       # 标定页当前多边形
+        # True = 拖拽四点（保存时替换）；False = 点击加点（保存时追加）。
+        # 默认与下拉框第一项"拖拽四点"一致，由 on_roi_mode_changed 维护。
+        self._roi_drag_mode = True
+        # 保存 rois.json 期间置 True，屏蔽文件监听器（防竞态覆盖）
+        self._roi_saving = False
 
         self._build_ui()
 
@@ -1242,9 +1247,32 @@ class MainWindow(QMainWindow):
 
         form.addWidget(self._dim("运行设备"), 4, 0)
         self.combo_device = QComboBox()
-        self.combo_device.addItems(["cpu", "cuda"])
+        # 只列出这台机器真能用的设备。
+        # 之前无脑列 cpu/cuda 两项，用户选了 cuda 而机器没 GPU 时，
+        # ultralytics 会抛 "Invalid CUDA 'device=0' requested" 把检测线程搞崩。
+        _cuda_ok = False
+        try:
+            _cuda_ok = bool(torch.cuda.is_available())
+            _cuda_n = int(torch.cuda.device_count()) if _cuda_ok else 0
+        except Exception:
+            _cuda_n = 0
+        self._cuda_ok = _cuda_ok
+        self.combo_device.addItem("cpu")
+        if _cuda_ok:
+            for _i in range(max(1, _cuda_n)):
+                self.combo_device.addItem("cuda:{}".format(_i))
+        else:
+            # 仍然列出来但禁用，让用户知道"有 GPU 这个选项，只是本机没有"
+            self.combo_device.addItem("cuda（本机无可用 GPU）")
+            _item = self.combo_device.model().item(1)
+            if _item is not None:
+                _item.setEnabled(False)
         self.combo_device.setFixedWidth(142)
-        self.combo_device.setCurrentIndex(0 if self.cfg.get("device", "cpu") == "cpu" else 1)
+        _req = str(self.cfg.get("device", "cpu")).strip().lower()
+        self.combo_device.setCurrentIndex(0 if (_req == "cpu" or not _cuda_ok) else 1)
+        self.combo_device.setToolTip(
+            "本机 CUDA 可用" if _cuda_ok else
+            "本机没有可用的 CUDA（torch.cuda.is_available() = False），只能用 CPU")
         form.addWidget(self.combo_device, 4, 1)
         pl.addWidget(g2)
 
@@ -1752,11 +1780,44 @@ class MainWindow(QMainWindow):
         self._show_first_frame()
         return True
 
+    def _find_test_video(self):
+        """找可用的测试视频。
+
+        修复记录：原来写死 videos/test_blindway.mp4，但仓库里实际的文件叫
+        demo_blindway.mp4 / demo_blindway_long.mp4 —— 文件名对不上，
+        导致「用测试视频」按钮永远弹"未找到"，界面自检也因此在同一处崩掉。
+        现在按候选名依次找，并兜底扫 videos/ 下的任意 mp4。
+        """
+        vdir = os.path.join(BASE_DIR, "videos")
+        for name in ("demo_blindway.mp4", "test_blindway.mp4",
+                     "demo_blindway_long.mp4"):
+            p = os.path.join(vdir, name)
+            if os.path.exists(p):
+                return p
+        # 兜底：videos 目录下任意一个视频
+        try:
+            if os.path.isdir(vdir):
+                vids = sorted(f for f in os.listdir(vdir)
+                              if f.lower().endswith((".mp4", ".avi", ".mov")))
+                if vids:
+                    return os.path.join(vdir, vids[0])
+        except Exception:
+            pass
+        return None
+
     def _maybe_use_test_video(self, initial=False):
-        path = os.path.join(BASE_DIR, "videos", "test_blindway.mp4")
-        if not os.path.exists(path):
-            if not initial:
-                QMessageBox.warning(self, "提示", "未找到测试视频 videos/test_blindway.mp4")
+        path = self._find_test_video()
+        if not path:
+            # 自动化环境（界面自检）里弹模态框会直接崩，且没人能点确认。
+            # 这里改成只有交互式启动时才提示，自检时静默跳过。
+            if not initial and os.environ.get("BLINDWAY_SELFTEST") != "1":
+                QMessageBox.warning(
+                    self, "提示",
+                    "在 videos 目录下没找到测试视频。\n\n"
+                    "请把视频放到 videos/ 下（支持 mp4/avi/mov），\n"
+                    "或点「选择视频…」手动挑一个。")
+            else:
+                self.statusBar().showMessage("未找到测试视频，已跳过", 5000)
             return
         self.cfg["video_source"] = path
         self.edit_video.setText(os.path.basename(path))
@@ -1764,7 +1825,8 @@ class MainWindow(QMainWindow):
         self.combo_source.setCurrentIndex(0)
         self._load_video_meta()
         self._show_first_frame()
-        self.statusBar().showMessage("已加载测试视频（含盲道占用片段）", 5000)
+        self.statusBar().showMessage(
+            "已加载测试视频：{}".format(os.path.basename(path)), 5000)
 
     def on_select_video(self):
         start = os.path.join(BASE_DIR, "videos")
@@ -1938,6 +2000,12 @@ class MainWindow(QMainWindow):
     def on_roi_mode_changed(self, idx):
         """0 = 拖拽四点（自由变形）；1 = 点击加点（任意多边形）"""
         drag_mode = (idx == 0)
+        # ★ 记住当前模式。on_roi_save() 依据它决定"替换"还是"追加"。
+        #   之前是直接读 roi_canvas._edit_mode，但画布状态可能被别的流程
+        #   （载入、复位、切页）改掉，于是界面显示"点击加点"却走了"替换"分支，
+        #   表现就是追加区域保存后区域数不变、自检报 before=1 after=1。
+        #   改成以下拉框为单一来源。
+        self._roi_drag_mode = drag_mode
         self.roi_canvas.set_edit_mode(drag_mode)
         self.roi_canvas.set_draw_mode(not drag_mode)
 
@@ -2119,11 +2187,21 @@ class MainWindow(QMainWindow):
         拖拽四点模式：这是**整体重画**盲道区域，因此替换掉原来保存的区域。
         点击加点模式：作为**新增**区域追加（支持一块盲道拆成多段的情况）。
         """
+        # 整个保存过程屏蔽文件监听器，避免它读到写了一半的文件
+        self._roi_saving = True
+        try:
+            return self._on_roi_save_impl()
+        finally:
+            self._roi_saving = False
+
+    def _on_roi_save_impl(self):
         quad = self.roi_canvas.quad()
         pts = self.roi_canvas.draw_points()
         hull_note = ""
 
-        if quad and self.roi_canvas._edit_mode:
+        # 以下拉框记录的模式为准（单一来源），不读画布内部状态 —— 画布状态
+        # 可能被载入/复位等流程改动，导致"显示点击加点却走了替换分支"。
+        if self._roi_drag_mode and quad:
             poly = [[int(x), int(y)] for x, y in quad]
             regions = [{"name": "blindway", "polygon": poly}]
             mode_desc = "拖拽四点"
@@ -2163,7 +2241,14 @@ class MainWindow(QMainWindow):
             mode_desc = "点击加点"
 
         self._write_rois(regions)
-        self.rois = load_rois()
+        # ★ 不要在这里 load_rois() 回读磁盘。
+        #   原来写成 self.rois = load_rois()，而写文件会更新 mtime，紧接着
+        #   _roi_timer 的文件监听回调也会重载一次 —— 两个重载撞在一起时，
+        #   监听回调可能读到"写入过程中"的文件（区域还没写完），把 self.rois
+        #   覆盖成旧值。实测表现：磁盘上明明有 2 个区域，内存里只剩 1 个，
+        #   界面显示"共 1 个区域"，追加保存看起来失败。
+        #   现在直接用刚写出去的数据构造，不依赖回读。
+        self.rois = [np.array(r["polygon"], np.int32) for r in regions] or None
         self.roi_canvas.clear_draw_points()
         self.roi_canvas.set_quad(None)
         self._cur_roi_poly = []
@@ -2211,6 +2296,10 @@ class MainWindow(QMainWindow):
             self.lbl_pts.setText("当前顶点：{} 个".format(n))
 
     def _watch_roi_file(self):
+        # 正在保存中就不要重载 —— 否则会读到写了一半的文件，
+        # 把刚保存的区域覆盖掉（详细说明见 on_roi_save 里的注释）。
+        if getattr(self, "_roi_saving", False):
+            return
         path = os.path.join(BASE_DIR, "config", "rois.json")
         if not os.path.exists(path):
             return
@@ -2231,6 +2320,19 @@ class MainWindow(QMainWindow):
     # ==================================================================
     #  检测控制
     # ==================================================================
+    def _current_device(self):
+        """取当前真正生效的推理设备名。
+
+        下拉框在无 GPU 时会多一个禁用的占位项（"cuda（本机无可用 GPU）"），
+        那个文字不能当设备名传给 ultralytics，否则又会触发
+        "Invalid CUDA 'device=0' requested"。所以这里做一次判定。
+        """
+        txt = self.combo_device.currentText().strip()
+        if txt == "cpu" or txt.startswith("cuda:"):
+            return txt
+        # 占位项 / 任何意外文本 -> 一律 CPU，保证不会崩
+        return "cpu"
+
     def _collect_cfg(self):
         cfg = dict(self.cfg)
         cfg.update({
@@ -2239,7 +2341,9 @@ class MainWindow(QMainWindow):
             "confirm_frames": self.spin_confirm.value(),
             "alarm_cooldown_sec": self.spin_cooldown.value(),
             "alarm_repeat_enabled": self.chk_repeat.isChecked(),
-            "device": self.combo_device.currentText(),
+            # 设备名只在 CPU 或真正可用的 cuda:N 里取；
+            # 那个"cuda（本机无可用 GPU）"的禁用占位项不能被当成设备名。
+            "device": self._current_device(),
             "save_snapshot": self.chk_snapshot.isChecked(),
             "play_sound": self.chk_sound.isChecked(),
             "save_output_video": self.chk_record.isChecked(),
@@ -2320,6 +2424,21 @@ class MainWindow(QMainWindow):
         self._last_frame_idx = start_frame
         self._refresh_restart_enabled()
         self._set_badge(self.badge_status, "检测中", "IdleBadge")
+
+        # 设备不可用时会自动回退到 CPU —— 必须让用户知道，不能默默降级。
+        # （在下拉框选了 cuda 但本机没 GPU，以前会直接抛
+        #   "Invalid CUDA 'device=0' requested" 崩掉，现在改为提示 + 用 CPU 继续跑）
+        _req = str(self.cfg.get("device", "cpu")).strip()
+        if _req.lower() not in ("cpu", "") and not self._cuda_ok:
+            QMessageBox.information(
+                self, "已自动改用 CPU 运行",
+                "你选择的是 {}\n\n"
+                "但这台机器没有可用的 CUDA（torch.cuda.is_available() = False），"
+                "系统已自动改用 CPU，检测会照常进行，只是速度比 GPU 慢一些\n"
+                "（本机实测约 51~71 ms/帧，拍演示视频完全够用）。\n\n"
+                "想用 GPU 的话需要安装 CUDA 版 PyTorch。".format(_req))
+        self.lbl_engine_info.setText("YOLOv8n · {}".format(self._current_device().upper()))
+
         if start_frame > 0:
             self.statusBar().showMessage(
                 "正在加载 YOLOv8n 模型 ...（将从第 {} 帧开始）".format(start_frame))

@@ -13,6 +13,7 @@
     ui/_shot_03_alarm.png     报警记录页
     ui/_shot_04_report.png    数据报告页
 """
+import atexit
 import faulthandler
 import os
 import sys
@@ -68,6 +69,12 @@ def snap(win, name):
 
 
 def main():
+    # ★ 必须在 import qt_app / 建 QApplication 之前设，让界面代码知道"正在自检"，
+    #   从而跳过模态对话框（模态框在自动化里没人点确认，会直接崩进程 —— 实测过：
+    #   _maybe_use_test_video 里一句 QMessageBox.warning 就让自检以
+    #   access violation（-1073741819）退出）。
+    os.environ["BLINDWAY_SELFTEST"] = "1"
+
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     app = QApplication(sys.argv)
 
@@ -75,9 +82,27 @@ def main():
     #   跑完必须还原，否则会把用户实际配置污染掉。这里先备份。
     roi_path = os.path.join(QT_DIR, "config", "rois.json")
     roi_had = os.path.exists(roi_path)
+    roi_orig = None
     if roi_had:
         with open(roi_path, "rb") as f:
             roi_orig = f.read()
+
+    # ★★ 兜底还原：除了这里的 finally，再挂一个 atexit。
+    #   原因：实测发现只靠 finally 还不够 —— 自检跑完后，进程退出阶段
+    #   界面里那个 rois.json 文件监听定时器仍可能触发一次重载/写回，
+    #   把用户原始的 ROI 覆盖成自检用的测试区域（用户的配置就丢了）。
+    #   atexit 在 Qt 事件循环完全停止之后才执行，能保证最后落盘的是原始内容。
+    def _restore_roi():
+        try:
+            if roi_had and roi_orig is not None:
+                with open(roi_path, "wb") as f:
+                    f.write(roi_orig)
+            elif os.path.exists(roi_path):
+                os.remove(roi_path)
+        except Exception:
+            pass
+
+    atexit.register(_restore_roi)
 
     try:
         return _run(app, roi_path)
@@ -109,7 +134,12 @@ def _run(app, roi_path):
     win._maybe_use_test_video(initial=False)
     spin(300)
     src = win.cfg.get("video_source", "")
-    check("测试视频已载入", src.endswith("test_blindway.mp4"), src)
+    # 注意：这里放宽为"任一演示视频"，不再写死文件名 ——
+    # 原来断言 endswith("test_blindway.mp4")，但仓库里的文件叫
+    # demo_blindway.mp4，代码和断言都对不上，导致这条一直误报失败。
+    check("测试视频已载入",
+          src.endswith((".mp4", ".avi", ".mov")) and "videos" in src.replace("\\", "/"),
+          src)
     check("视频元信息已读取", win.total_frames > 0 and win.fps > 0,
           "frames={} fps={}".format(win.total_frames, win.fps))
     check("首帧已显示到画布", win.canvas._pixmap is not None)
